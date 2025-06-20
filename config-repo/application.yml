@@ -1,0 +1,28 @@
+# Global settings
+spring:
+  application:
+    name: libromesh
+  cloud:
+    vault:
+      enabled: true
+      uri: ${VAULT_URI:http://vault:8200}
+      authentication: TOKEN
+      token: ${VAULT_TOKEN}
+      kv:
+        backend: secret
+        default-context: libromesh/common
+
+  profiles:
+    active: dev
+  jackson:
+    serialization:
+      fail-on-empty-beans: false
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics

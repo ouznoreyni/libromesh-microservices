@@ -4,6 +4,80 @@ services:
   # Infrastructure Services
   # ==========================================
 
+  # 🗄️ VAULT DATABASE - PostgreSQL backend for Vault
+  postgres-vault:
+    image: postgres:15
+    container_name: library-postgres-vault
+    environment:
+      - POSTGRES_DB=vault
+      - POSTGRES_USER=vault_user
+      - POSTGRES_PASSWORD=vault_secure_password_2024
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - postgres-vault-data:/var/lib/postgresql/data
+      - ./setups/vault/init-vault-db.sql:/docker-entrypoint-initdb.d/init-vault-db.sql:ro
+    networks:
+      - libromesh-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vault_user -d vault"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # 🏦 VAULT SERVER - HashiCorp Vault 1.19 with PostgreSQL backend
+  vault:
+    image: hashicorp/vault:1.19
+    container_name: library-vault
+    ports:
+      - "8200:8200"
+      - "8201:8201"  # Cluster port
+    depends_on:
+      postgres-vault:
+        condition: service_healthy
+    environment:
+      - VAULT_ADDR=http://0.0.0.0:8200
+      - VAULT_API_ADDR=http://0.0.0.0:8200
+      - VAULT_CLUSTER_ADDR=http://0.0.0.0:8201
+      - VAULT_LOG_LEVEL=INFO
+      - VAULT_LOG_FORMAT=json
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - vault-data:/vault/data
+      - vault-logs:/vault/logs
+      - vault-config:/vault/config
+      - ./setups/vault/vault-config.hcl:/vault/config/vault.hcl:ro
+    networks:
+      - libromesh-network
+    command: vault server -config=/vault/config/vault.hcl
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 45s
+    restart: unless-stopped
+
+  # 🔧 VAULT INITIALIZER - Enhanced initialization for Vault 1.19
+  vault-init:
+    image: hashicorp/vault:1.19
+    container_name: library-vault-init
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_TOKEN=myroot
+      - VAULT_FORMAT=json
+    volumes:
+      - ./setups/vault/setup-vault.sh:/setup-vault.sh:ro
+      - vault-init-output:/vault-output
+    networks:
+      - libromesh-network
+    command: ["/bin/sh", "/setup-vault.sh"]
+    restart: "no"
+
   # Apache Kafka
   zookeeper:
     image: confluentinc/cp-zookeeper:7.7.4
@@ -63,32 +137,6 @@ services:
       KAFKA_CLUSTERS_0_NAME: libromesh-cluster
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
-    networks:
-      - libromesh-network
-
-  # HashiCorp Vault
-  vault:
-    image: hashicorp/vault:1.19
-    container_name: libromesh-vault
-    restart: unless-stopped
-    ports:
-      - "8200:8200"
-    environment:
-      VAULT_ADDR: 'http://0.0.0.0:8200'
-      VAULT_DEV_ROOT_TOKEN_ID: 'root-token'
-      VAULT_DEV_LISTEN_ADDRESS: '0.0.0.0:8200'
-    cap_add:
-      - IPC_LOCK
-    volumes:
-      - vault_data:/vault/data
-      - vault_logs:/vault/logs
-      - ./infrastructure/vault/config:/vault/config:ro
-      - ./infrastructure/vault/scripts:/vault/scripts:ro
-    healthcheck:
-      test: ["CMD", "vault", "status"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
     networks:
       - libromesh-network
 
@@ -154,13 +202,16 @@ services:
 # ==========================================
 volumes:
   # Infrastructure volumes
-  vault_data:
-  vault_logs:
   redis_data:
   zookeeper_data:
   zookeeper_logs:
   kafka_data:
   keycloak_db_data:
+  postgres-vault-data:
+  vault-data:
+  vault-logs:
+  vault-config:
+  vault-init-output:
 
 # ==========================================
 # Networks

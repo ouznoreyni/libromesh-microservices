@@ -1,0 +1,10 @@
+server:
+  port: 8081
+spring:
+  application:
+    name: user-service
+app:
+  feature:
+    user-registration-enabled: true
+  timeout:
+    session: 1800
