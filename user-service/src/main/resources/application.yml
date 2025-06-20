@@ -1,0 +1,12 @@
+server:
+  port: 9001
+
+spring:
+  application:
+    name: user-service
+  cloud:
+    config:
+      enabled: true
+  config:
+    import: optional:configserver:http://localhost:8000
+

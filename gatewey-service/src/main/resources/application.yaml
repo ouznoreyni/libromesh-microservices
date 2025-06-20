@@ -4,23 +4,9 @@ server:
 spring:
   application:
     name: gateway-service
-
   cloud:
-    discovery:
+    config:
       enabled: true
-    gateway:
-      server:
-        webflux:
-          enabled: true
-          discovery:
-            locator:
-              lower-case-service-id: true
-
-eureka:
-  instance:
-    prefer-ip-address: true
-  client:
-    service-url:
-      defaultZone: http://localhost:8761/eureka
-
+  config:
+    import: optional:configserver:http://localhost:8000
 

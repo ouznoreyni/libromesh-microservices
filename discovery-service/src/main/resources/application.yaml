@@ -1,4 +1,11 @@
-spring.application.name=discovery-service
-server.port=8761
-eureka.client.fetch-registry=false
-eureka.client.register-with-eureka=false
+server:
+  port: 8761
+
+spring:
+  application:
+    name: discovery-service
+
+eureka:
+  client:
+    fetch-registry: true
+    register-with-eureka: false
