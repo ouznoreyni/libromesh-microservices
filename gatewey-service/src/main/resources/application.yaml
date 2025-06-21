@@ -4,14 +4,5 @@ server:
 spring:
   application:
     name: gateway-service
-  cloud:
-    config:
-      enabled: true
-    gateway:
-      server:
-        webflux:
-          discovery:
-            locator:
-              lower-case-service-id: true
   config:
     import: optional:configserver:http://localhost:8000
