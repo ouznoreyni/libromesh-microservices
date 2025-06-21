@@ -8,7 +8,6 @@ spring:
     config:
       server:
         git:
-          uri: https://github.com/ouznoreyni/libromesh-microservices.git
-          search-paths: tree/main/config-repo  # Name of your config folder
+          uri: https://github.com/ouznoreyni/libromesh-config-repo
           clone-on-start: true
 
