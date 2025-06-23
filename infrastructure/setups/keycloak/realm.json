@@ -1,0 +1,141 @@
+{
+  "id": "libroMesh",
+  "realm": "libroMesh",
+  "sslRequired": "none",
+  "enabled": true,
+  "eventsEnabled": true,
+  "eventsExpiration": 900,
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": true,
+  "attributes": {
+    "adminEventsExpiration": "900"
+  },
+  "roles": {
+    "realm": [
+      {
+        "name": "SUPER_ADMIN",
+        "description": "Full system administrator with complete access"
+      },
+      {
+        "name": "LIBRARY_MANAGER",
+        "description": "Library manager with administrative privileges"
+      },
+      {
+        "name": "LIBRARIAN",
+        "description": "Professional librarian with full library services access"
+      },
+      {
+        "name": "CIRCULATION_STAFF",
+        "description": "Staff handling check-out/check-in operations"
+      },
+      {
+        "name": "CATALOGER",
+        "description": "Staff responsible for cataloging and metadata management"
+      },
+      {
+        "name": "REFERENCE_LIBRARIAN",
+        "description": "Specialist providing research and reference services"
+      },
+      {
+        "name": "ACQUISITIONS_LIBRARIAN",
+        "description": "Staff managing collection development and purchases"
+      },
+      {
+        "name": "SYSTEMS_ADMIN",
+        "description": "Technical administrator for library systems"
+      },
+      {
+        "name": "PATRON",
+        "description": "Regular library user with borrowing privileges"
+      },
+      {
+        "name": "GUEST",
+        "description": "Limited access user for basic services"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "id": "libroMesh",
+      "clientId": "libroMesh",
+      "name": "LibroMesh Library System",
+      "enabled": true,
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${LIBROMESH_CLIENT_SECRET}",
+      "rootUrl": "${LIBROMESH_URL}",
+      "adminUrl": "${LIBROMESH_URL}",
+      "baseUrl": "${LIBROMESH_URL}",
+      "redirectUris": [
+        "${LIBROMESH_URL}/*"
+      ],
+      "webOrigins": [
+        "${LIBROMESH_URL}"
+      ],
+      "bearerOnly": false,
+      "consentRequired": false,
+      "fullScopeAllowed": true,
+      "nodeReRegistrationTimeout": -1,
+      "protocolMappers": [
+        {
+          "name": "role list",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "id": "admin",
+      "email": "${LIBROMESH_ADMIN_EMAIL}",
+      "username": "${LIBROMESH_ADMIN_USERNAME}",
+      "firstName": "System",
+      "lastName": "Administrator",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "temporary": false,
+          "type": "password",
+          "value": "${LIBROMESH_ADMIN_PASSWORD}"
+        }
+      ],
+      "realmRoles": [
+        "SUPER_ADMIN"
+      ]
+    },
+    {
+      "id": "librarian",
+      "email": "${LIBROMESH_LIBRARIAN_EMAIL}",
+      "username": "${LIBROMESH_LIBRARIAN_USERNAME}",
+      "firstName": "Head",
+      "lastName": "Librarian",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "temporary": false,
+          "type": "password",
+          "value": "${LIBROMESH_LIBRARIAN_PASSWORD}"
+        }
+      ],
+      "realmRoles": [
+        "LIBRARIAN"
+      ]
+    }
+  ]
+}
