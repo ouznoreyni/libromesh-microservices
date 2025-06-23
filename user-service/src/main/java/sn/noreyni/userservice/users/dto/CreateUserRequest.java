@@ -29,6 +29,6 @@ public class CreateUserRequest {
 
     private String firstName;
     private String lastName;
-    private Boolean enabled;
+    private Boolean enabled = true;
     private List<String> roles;
 }

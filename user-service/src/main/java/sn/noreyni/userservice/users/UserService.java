@@ -8,7 +8,6 @@ import org.keycloak.representations.idm.CredentialRepresentation;
 import org.keycloak.representations.idm.RoleRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import sn.noreyni.userservice.common.PagedResponse;
@@ -24,7 +23,8 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
+
+import jakarta.ws.rs.core.Response;
 
 @Service
 @RequiredArgsConstructor
@@ -33,7 +33,6 @@ public class UserService {
 
     private final Keycloak keycloak;
     private final KeycloakAdminClientConfig keycloakConfig;
-    private final WebClient.Builder webClientBuilder;
 
     /**
      * Create a new user in Keycloak with optional roles
@@ -44,66 +43,74 @@ public class UserService {
         log.info("User creation attempt started | correlation_id={} | username={} | method=createUser",
                 correlationId, request.getUsername());
 
-        return Mono.fromCallable(() -> {
-            RealmResource realmResource = keycloak.realm(keycloakConfig.getRealm());
-            UserRepresentation user = new UserRepresentation();
-            user.setUsername(request.getUsername());
-            user.setEmail(request.getEmail());
-            user.setFirstName(request.getFirstName());
-            user.setLastName(request.getLastName());
-            user.setEnabled(request.getEnabled() != null ? request.getEnabled() : true);
-            user.setEmailVerified(false);
+        return Mono.fromCallable(() -> createUserInKeycloak(request, correlationId, startTime))
+                .onErrorMap(ex -> handleError(ex, correlationId, startTime, request.getUsername(), "createUser"));
+    }
 
-            // Create user in Keycloak
-            jakarta.ws.rs.core.Response response = realmResource.users().create(user);
-            int status = response.getStatus();
+    private CreateUserResponse createUserInKeycloak(CreateUserRequest request, String correlationId, long startTime) {
+        RealmResource realmResource = keycloak.realm(keycloakConfig.getRealm());
+        UserRepresentation user = buildUserRepresentation(request);
 
-            if (status >= 400) {
-                String errorMessage = "Failed to create user in Keycloak, status: " + status;
-                log.error("User creation failed | correlation_id={} | username={} | method=createUser | status=error | error_code=KEYCLOAK_ERROR | error_message={} | duration_ms={}",
-                        correlationId, request.getUsername(), errorMessage, System.currentTimeMillis() - startTime);
-                throw ApiException.badRequest(errorMessage);
-            }
+        // Create user
+        Response response = realmResource.users().create(user);
+        validateResponse(response, correlationId, request.getUsername(), startTime);
 
-            // Extract user ID
-            String userId = response.getLocation().getPath().substring(response.getLocation().getPath().lastIndexOf('/') + 1);
+        // Extract user ID
+        String userId = extractUserId(response);
 
-            // Set user password
-            CredentialRepresentation passwordCred = new CredentialRepresentation();
-            passwordCred.setType(CredentialRepresentation.PASSWORD);
-            passwordCred.setValue(request.getPassword());
-            passwordCred.setTemporary(false);
-            realmResource.users().get(userId).resetPassword(passwordCred);
+        // Set password
+        setUserPassword(realmResource, userId, request.getPassword());
 
-            // Assign roles if provided
-            if (request.getRoles() != null && !request.getRoles().isEmpty()) {
-                List<RoleRepresentation> rolesToAssign = request.getRoles().stream()
-                        .map(roleName -> {
-                            RoleRepresentation role = realmResource.roles().get(roleName).toRepresentation();
-                            if (role == null) {
-                                throw ApiException.badRequest("Role not found: " + roleName);
-                            }
-                            return role;
-                        })
-                        .collect(Collectors.toList());
-                realmResource.users().get(userId).roles().realmLevel().add(rolesToAssign);
-            }
+        // Assign roles
+        assignRolesIfProvided(realmResource, userId, request.getRoles());
 
-            long duration = System.currentTimeMillis() - startTime;
-            log.info("User creation successful | correlation_id={} | username={} | user_id={} | roles={} | method=createUser | status=success | duration_ms={}",
-                    correlationId, request.getUsername(), userId, request.getRoles(), duration);
+        long duration = System.currentTimeMillis() - startTime;
+        log.info("User creation successful | correlation_id={} | username={} | user_id={} | roles={} | method=createUser | status=success | duration_ms={}",
+                correlationId, request.getUsername(), userId, request.getRoles(), duration);
 
-            return CreateUserResponse.builder()
-                    .userId(userId)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-        }).onErrorMap(ex -> {
-            long duration = System.currentTimeMillis() - startTime;
-            String errorCode = ex instanceof ApiException ? ((ApiException) ex).getCode() : "KEYCLOAK_ERROR";
-            log.error("User creation failed | correlation_id={} | username={} | method=createUser | status=error | error_code={} | error_message={} | duration_ms={}",
-                    correlationId, request.getUsername(), errorCode, ex.getMessage(), duration);
-            return ex instanceof ApiException ? ex : ApiException.internalError("Failed to create user");
-        });
+        return CreateUserResponse.builder()
+                .userId(userId)
+                .createdAt(LocalDateTime.now())
+                .build();
+    }
+
+    private UserRepresentation buildUserRepresentation(CreateUserRequest request) {
+        UserRepresentation user = new UserRepresentation();
+        user.setUsername(request.getUsername());
+        user.setEmail(request.getEmail());
+        user.setFirstName(request.getFirstName());
+        user.setLastName(request.getLastName());
+        user.setEnabled(request.getEnabled());
+        user.setEmailVerified(false);
+        return user;
+    }
+
+    private void validateResponse(Response response, String correlationId, String username, long startTime) {
+        int status = response.getStatus();
+        if (status >= 400) {
+            String errorMessage = "Failed to create user in Keycloak, status: " + status;
+            log.error("User creation failed | correlation_id={} | username={} | method=createUser | status=error | error_code=KEYCLOAK_ERROR | error_message={} | duration_ms={}",
+                    correlationId, username, errorMessage, System.currentTimeMillis() - startTime);
+            throw ApiException.badRequest(errorMessage);
+        }
+    }
+
+    private String extractUserId(Response response) {
+        return response.getLocation().getPath().substring(response.getLocation().getPath().lastIndexOf('/') + 1);
+    }
+
+    private void setUserPassword(RealmResource realmResource, String userId, String password) {
+        CredentialRepresentation passwordCred = new CredentialRepresentation();
+        passwordCred.setType(CredentialRepresentation.PASSWORD);
+        passwordCred.setValue(password);
+        passwordCred.setTemporary(false);
+        realmResource.users().get(userId).resetPassword(passwordCred);
+    }
+
+    private void assignRolesIfProvided(RealmResource realmResource, String userId, List<String> roles) {
+        if (roles != null && !roles.isEmpty()) {
+            assignRolesToUser(realmResource, userId, roles);
+        }
     }
 
     /**
@@ -115,42 +122,51 @@ public class UserService {
         log.info("User retrieval attempt started | correlation_id={} | user_id={} | method=getUser",
                 correlationId, userId);
 
-        return Mono.fromCallable(() -> {
-            RealmResource realmResource = keycloak.realm(keycloakConfig.getRealm());
-            UserRepresentation user = realmResource.users().get(userId).toRepresentation();
-            if (user == null) {
-                throw ApiException.badRequest("User not found: " + userId);
-            }
+        return Mono.fromCallable(() -> fetchUserDetails(userId, correlationId, startTime))
+                .onErrorMap(ex -> handleError(ex, correlationId, startTime, userId, "getUser"));
+    }
 
-            List<String> roles = realmResource.users().get(userId).roles().realmLevel().listEffective()
-                    .stream()
-                    .map(RoleRepresentation::getName)
-                    .collect(Collectors.toList());
+    private UserResponse fetchUserDetails(String userId, String correlationId, long startTime) {
+        RealmResource realmResource = keycloak.realm(keycloakConfig.getRealm());
+        UserRepresentation user = getUserRepresentation(realmResource, userId);
+        List<String> roles = getUserRoles(realmResource, userId);
 
-            long duration = System.currentTimeMillis() - startTime;
-            log.info("User retrieval successful | correlation_id={} | user_id={} | username={} | method=getUser | status=success | duration_ms={}",
-                    correlationId, userId, user.getUsername(), duration);
+        long duration = System.currentTimeMillis() - startTime;
+        log.info("User retrieval successful | correlation_id={} | user_id={} | username={} | method=getUser | status=success | duration_ms={}",
+                correlationId, userId, user.getUsername(), duration);
 
-            return UserResponse.builder()
-                    .userId(userId)
-                    .username(user.getUsername())
-                    .email(user.getEmail())
-                    .firstName(user.getFirstName())
-                    .lastName(user.getLastName())
-                    .enabled(user.isEnabled())
-                    .emailVerified(user.isEmailVerified())
-                    .createdAt(LocalDateTime.ofInstant(
-                            java.time.Instant.ofEpochMilli(user.getCreatedTimestamp()),
-                            java.time.ZoneId.systemDefault()))
-                    .roles(roles)
-                    .build();
-        }).onErrorMap(ex -> {
-            long duration = System.currentTimeMillis() - startTime;
-            String errorCode = ex instanceof ApiException ? ((ApiException) ex).getCode() : "KEYCLOAK_ERROR";
-            log.error("User retrieval failed | correlation_id={} | user_id={} | method=getUser | status=error | error_code={} | error_message={} | duration_ms={}",
-                    correlationId, userId, errorCode, ex.getMessage(), duration);
-            return ex instanceof ApiException ? ex : ApiException.badRequest("User not found: " + userId);
-        });
+        return buildUserResponse(user, roles);
+    }
+
+    private UserRepresentation getUserRepresentation(RealmResource realmResource, String userId) {
+        UserRepresentation user = realmResource.users().get(userId).toRepresentation();
+        if (user == null) {
+            throw ApiException.badRequest("User not found: " + userId);
+        }
+        return user;
+    }
+
+    private List<String> getUserRoles(RealmResource realmResource, String userId) {
+        return realmResource.users().get(userId).roles().realmLevel().listEffective()
+                .stream()
+                .map(RoleRepresentation::getName)
+                .toList();
+    }
+
+    private UserResponse buildUserResponse(UserRepresentation user, List<String> roles) {
+        return UserResponse.builder()
+                .userId(user.getId())
+                .username(user.getUsername())
+                .email(user.getEmail())
+                .firstName(user.getFirstName())
+                .lastName(user.getLastName())
+                .enabled(user.isEnabled())
+                .emailVerified(user.isEmailVerified())
+                .createdAt(LocalDateTime.ofInstant(
+                        Instant.ofEpochMilli(user.getCreatedTimestamp()),
+                        ZoneId.systemDefault()))
+                .roles(roles)
+                .build();
     }
 
     /**
@@ -162,45 +178,23 @@ public class UserService {
         log.info("User list retrieval attempt started | correlation_id={} | method=listUsers",
                 correlationId);
 
-        return Mono.fromCallable(() -> {
-            RealmResource realmResource = keycloak.realm(keycloakConfig.getRealm());
-            List<UserRepresentation> users = realmResource.users().list();
+        return Mono.fromCallable(() -> fetchAllUsers(correlationId, startTime))
+                .onErrorMap(ex -> handleError(ex, correlationId, startTime, null, "listUsers"));
+    }
 
-            List<UserResponse> userResponses = users.stream()
-                    .map(user -> {
-                        List<String> roles =
-                                realmResource.users().get(user.getId()).roles().realmLevel().listAll()
-                                        .stream()
-                                        .map(RoleRepresentation::getName)
-                                        .toList();
-                        return UserResponse.builder()
-                                .userId(user.getId())
-                                .username(user.getUsername())
-                                .email(user.getEmail())
-                                .firstName(user.getFirstName())
-                                .lastName(user.getLastName())
-                                .enabled(user.isEnabled())
-                                .emailVerified(user.isEmailVerified())
-                                .createdAt(user.getCreatedTimestamp() != null ? LocalDateTime.ofInstant(
-                                        Instant.ofEpochMilli(user.getCreatedTimestamp()),
-                                        ZoneId.systemDefault()) : null)
-                                .roles(roles)
-                                .build();
-                    })
-                    .toList();
+    private List<UserResponse> fetchAllUsers(String correlationId, long startTime) {
+        RealmResource realmResource = keycloak.realm(keycloakConfig.getRealm());
+        List<UserRepresentation> users = realmResource.users().list();
 
-            long duration = System.currentTimeMillis() - startTime;
-            log.info("User list retrieval successful | correlation_id={} | user_count={} | method=listUsers | status=success | duration_ms={}",
-                    correlationId, userResponses.size(), duration);
+        List<UserResponse> userResponses = users.stream()
+                .map(user -> buildUserResponse(user, getUserRoles(realmResource, user.getId())))
+                .toList();
 
-            return userResponses;
-        }).onErrorMap(ex -> {
-            long duration = System.currentTimeMillis() - startTime;
-            String errorCode = ex instanceof ApiException ? ((ApiException) ex).getCode() : "KEYCLOAK_ERROR";
-            log.error("User list retrieval failed | correlation_id={} | method=listUsers | status=error | error_code={} | error_message={} | duration_ms={}",
-                    correlationId, errorCode, ex.getMessage(), duration);
-            return ex instanceof ApiException ? ex : ApiException.internalError("Failed to retrieve users");
-        });
+        long duration = System.currentTimeMillis() - startTime;
+        log.info("User list retrieval successful | correlation_id={} | user_count={} | method=listUsers | status=success | duration_ms={}",
+                correlationId, userResponses.size(), duration);
+
+        return userResponses;
     }
 
     /**
@@ -212,76 +206,45 @@ public class UserService {
         log.info("User list retrieval attempt started | correlation_id={} | page={} | size={} | method=listUsers",
                 correlationId, page, size);
 
-        return Mono.fromCallable(() -> {
-                    RealmResource realmResource = keycloak.realm(keycloakConfig.getRealm());
+        return Mono.fromCallable(() -> fetchPagedUsers(page, size, correlationId, startTime))
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorMap(ex -> handleError(ex, correlationId, startTime, null, "listUsers"));
+    }
 
-                    // Validate pagination parameters
-                    if (page < 0) {
-                        throw ApiException.badRequest("Page number must be non-negative");
-                    }
-                    if (size < 1 || size > 100) {
-                        throw ApiException.badRequest("Page size must be between 1 and 100");
-                    }
+    private PagedResponse<List<UserResponse>> fetchPagedUsers(int page, int size, String correlationId, long startTime) {
+        validatePaginationParameters(page, size);
 
-                    // Calculate first result index
-                    int first = page * size;
+        RealmResource realmResource = keycloak.realm(keycloakConfig.getRealm());
+        int first = page * size;
+        List<UserRepresentation> users = realmResource.users().list(first, size);
+        long totalElements = realmResource.users().count();
 
-                    // Fetch paginated users
-                    List<UserRepresentation> users = realmResource.users().list(first, size);
+        List<UserResponse> userResponses = users.stream()
+                .map(user -> buildUserResponse(user, getUserRoles(realmResource, user.getId())))
+                .toList();
 
-                    // Get total user count
-                    long totalElements = realmResource.users().count();
+        int totalPages = (int) Math.ceil((double) totalElements / size);
 
-                    // Map users to UserResponse
-                    List<UserResponse> userResponses = users.stream()
-                            .map(user -> {
-                                List<String> roles =
-                                        realmResource.users().get(user.getId()).roles().realmLevel().listAll()
-                                        .stream()
-                                        .map(RoleRepresentation::getName)
-                                        .collect(Collectors.toList());
+        long duration = System.currentTimeMillis() - startTime;
+        log.info("User list retrieval successful | correlation_id={} | page={} | size={} | user_count={} | total_elements={} | total_pages={} | method=listUsers | status=success | duration_ms={}",
+                correlationId, page, size, userResponses.size(), totalElements, totalPages, duration);
 
-                                return UserResponse.builder()
-                                        .userId(user.getId())
-                                        .username(user.getUsername())
-                                        .email(user.getEmail())
-                                        .firstName(user.getFirstName())
-                                        .lastName(user.getLastName())
-                                        .enabled(user.isEnabled())
-                                        .emailVerified(user.isEmailVerified())
-                                        .createdAt(user.getCreatedTimestamp()!=null?
-                                                LocalDateTime.ofInstant(
-                                                java.time.Instant.ofEpochMilli(user.getCreatedTimestamp()),
-                                                java.time.ZoneId.systemDefault()): null)
-                                        .roles(roles)
-                                        .build();
-                            })
-                            .collect(Collectors.toList());
+        return PagedResponse.<List<UserResponse>>builder()
+                .content(userResponses)
+                .totalElements(totalElements)
+                .totalPages(totalPages)
+                .currentPage(page)
+                .pageSize(size)
+                .build();
+    }
 
-                    // Calculate total pages
-                    int totalPages = (int) Math.ceil((double) totalElements / size);
-
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.info("User list retrieval successful | correlation_id={} | page={} | size={} | user_count={} | total_elements={} | total_pages={} | method=listUsers | status=success | duration_ms={}",
-                            correlationId, page, size, userResponses.size(), totalElements, totalPages, duration);
-
-                    // Fix: Explicitly type the PagedResponse builder
-                    return PagedResponse.<List<UserResponse>>builder()
-                            .content(userResponses)
-                            .totalElements(totalElements)
-                            .totalPages(totalPages)
-                            .currentPage(page)
-                            .pageSize(size)
-                            .build();
-                })
-                .subscribeOn(Schedulers.boundedElastic()) // Add scheduler for blocking operations
-                .onErrorMap(ex -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    String errorCode = ex instanceof ApiException ? ((ApiException) ex).getCode() : "KEYCLOAK_ERROR";
-                    log.error("User list retrieval failed | correlation_id={} | page={} | size={} | method=listUsers | status=error | error_code={} | error_message={} | duration_ms={}",
-                            correlationId, page, size, errorCode, ex.getMessage(), duration);
-                    return ex instanceof ApiException ? ex : ApiException.internalError("Failed to retrieve users");
-                });
+    private void validatePaginationParameters(int page, int size) {
+        if (page < 0) {
+            throw ApiException.badRequest("Page number must be non-negative");
+        }
+        if (size < 1 || size > 100) {
+            throw ApiException.badRequest("Page size must be between 1 and 100");
+        }
     }
 
     /**
@@ -293,69 +256,52 @@ public class UserService {
         log.info("User update attempt started | correlation_id={} | user_id={} | method=updateUser",
                 correlationId, userId);
 
-        return Mono.fromCallable(() -> {
-            RealmResource realmResource = keycloak.realm(keycloakConfig.getRealm());
-            UserRepresentation user = realmResource.users().get(userId).toRepresentation();
-            if (user == null) {
-                throw ApiException.badRequest("User not found: " + userId);
-            }
+        return Mono.fromCallable(() -> updateUserDetails(userId, request, correlationId, startTime))
+                .onErrorMap(ex -> handleError(ex, correlationId, startTime, userId, "updateUser"));
+    }
 
-            // Update user details if provided
-            if (request.getEmail() != null) user.setEmail(request.getEmail());
-            if (request.getFirstName() != null) user.setFirstName(request.getFirstName());
-            if (request.getLastName() != null) user.setLastName(request.getLastName());
-            if (request.getEnabled() != null) user.setEnabled(request.getEnabled());
+    private UserResponse updateUserDetails(String userId, UpdateUserRequest request, String correlationId, long startTime) {
+        RealmResource realmResource = keycloak.realm(keycloakConfig.getRealm());
+        UserRepresentation user = getUserRepresentation(realmResource, userId);
 
-            realmResource.users().get(userId).update(user);
+        updateUserAttributes(user, request);
+        realmResource.users().get(userId).update(user);
 
-            // Update roles if provided
-            if (request.getRoles() != null) {
-                // Remove existing realm roles
-                List<RoleRepresentation> currentRoles = realmResource.users().get(userId).roles().realmLevel().listEffective();
-                realmResource.users().get(userId).roles().realmLevel().remove(currentRoles);
+        updateUserRolesIfProvided(realmResource, userId, request.getRoles());
 
-                // Add new roles
-                List<RoleRepresentation> rolesToAssign = request.getRoles().stream()
-                        .map(roleName -> {
-                            RoleRepresentation role = realmResource.roles().get(roleName).toRepresentation();
-                            if (role == null) {
-                                throw ApiException.badRequest("Role not found: " + roleName);
-                            }
-                            return role;
-                        })
-                        .collect(Collectors.toList());
-                realmResource.users().get(userId).roles().realmLevel().add(rolesToAssign);
-            }
+        long duration = System.currentTimeMillis() - startTime;
+        log.info("User update successful | correlation_id={} | user_id={} | username={} | method=updateUser | status=success | duration_ms={}",
+                correlationId, userId, user.getUsername(), duration);
 
-            long duration = System.currentTimeMillis() - startTime;
-            log.info("User update successful | correlation_id={} | user_id={} | username={} | method=updateUser | status=success | duration_ms={}",
-                    correlationId, userId, user.getUsername(), duration);
+        return buildUserResponse(user, getUserRoles(realmResource, userId));
+    }
 
-            List<String> updatedRoles = realmResource.users().get(userId).roles().realmLevel().listEffective()
-                    .stream()
-                    .map(RoleRepresentation::getName)
-                    .collect(Collectors.toList());
+    private void updateUserAttributes(UserRepresentation user, UpdateUserRequest request) {
+        if (request.getEmail() != null) user.setEmail(request.getEmail());
+        if (request.getFirstName() != null) user.setFirstName(request.getFirstName());
+        if (request.getLastName() != null) user.setLastName(request.getLastName());
+        if (request.getEnabled() != null) user.setEnabled(request.getEnabled());
+    }
 
-            return UserResponse.builder()
-                    .userId(userId)
-                    .username(user.getUsername())
-                    .email(user.getEmail())
-                    .firstName(user.getFirstName())
-                    .lastName(user.getLastName())
-                    .enabled(user.isEnabled())
-                    .emailVerified(user.isEmailVerified())
-                    .createdAt(LocalDateTime.ofInstant(
-                            java.time.Instant.ofEpochMilli(user.getCreatedTimestamp()),
-                            java.time.ZoneId.systemDefault()))
-                    .roles(updatedRoles)
-                    .build();
-        }).onErrorMap(ex -> {
-            long duration = System.currentTimeMillis() - startTime;
-            String errorCode = ex instanceof ApiException ? ((ApiException) ex).getCode() : "KEYCLOAK_ERROR";
-            log.error("User update failed | correlation_id={} | user_id={} | method=updateUser | status=error | error_code={} | error_message={} | duration_ms={}",
-                    correlationId, userId, errorCode, ex.getMessage(), duration);
-            return ex instanceof ApiException ? ex : ApiException.badRequest("User not found: " + userId);
-        });
+    private void updateUserRolesIfProvided(RealmResource realmResource, String userId, List<String> roles) {
+        if (roles != null) {
+            List<RoleRepresentation> currentRoles = realmResource.users().get(userId).roles().realmLevel().listEffective();
+            realmResource.users().get(userId).roles().realmLevel().remove(currentRoles);
+            assignRolesToUser(realmResource, userId, roles);
+        }
+    }
+
+    private void assignRolesToUser(RealmResource realmResource, String userId, List<String> roles) {
+        List<RoleRepresentation> rolesToAssign = roles.stream()
+                .map(roleName -> {
+                    RoleRepresentation role = realmResource.roles().get(roleName).toRepresentation();
+                    if (role == null) {
+                        throw ApiException.badRequest("Role not found: " + roleName);
+                    }
+                    return role;
+                })
+                .toList();
+        realmResource.users().get(userId).roles().realmLevel().add(rolesToAssign);
     }
 
     /**
@@ -367,29 +313,38 @@ public class UserService {
         log.info("User deletion attempt started | correlation_id={} | user_id={} | method=deleteUser",
                 correlationId, userId);
 
+
         return Mono.fromCallable(() -> {
-            RealmResource realmResource = keycloak.realm(keycloakConfig.getRealm());
-            jakarta.ws.rs.core.Response response = realmResource.users().delete(userId);
-            int status = response.getStatus();
-
-            if (status >= 400) {
-                String errorMessage = "Failed to delete user in Keycloak, status: " + status;
-                log.error("User deletion failed | correlation_id={} | user_id={} | method=deleteUser | status=error | error_code=KEYCLOAK_ERROR | error_message={} | duration_ms={}",
-                        correlationId, userId, errorMessage, System.currentTimeMillis() - startTime);
-                throw ApiException.badRequest("User not found: " + userId);
-            }
-
-            long duration = System.currentTimeMillis() - startTime;
-            log.info("User deletion successful | correlation_id={} | user_id={} | method=deleteUser | status=success | duration_ms={}",
-                    correlationId, userId, duration);
-            return null;
-        }).then().onErrorMap(ex -> {
-            long duration = System.currentTimeMillis() - startTime;
-            String errorCode = ex instanceof ApiException ? ((ApiException) ex).getCode() : "KEYCLOAK_ERROR";
-            log.error("User deletion failed | correlation_id={} | user_id={} | method=deleteUser | status=error | error_code={} | error_message={} | duration_ms={}",
-                    correlationId, userId, errorCode, ex.getMessage(), duration);
-            return ex instanceof ApiException ? ex : ApiException.badRequest("User not found: " + userId);
-        });
+                    RealmResource realmResource = keycloak.realm(keycloakConfig.getRealm());
+                    Response response = realmResource.users().delete(userId);
+                    validateDeleteResponse(response, userId, correlationId, startTime);
+                    return null;
+                })
+                .then()
+                .onErrorMap(ex -> handleError(ex, correlationId, startTime, userId, "getUser"));
     }
 
+
+    private void validateDeleteResponse(Response response, String userId, String correlationId, long startTime) {
+        int status = response.getStatus();
+        if (status >= 400) {
+            String errorMessage = "Failed to delete user in Keycloak, status: " + status;
+            log.error("User deletion failed | correlation_id={} | user_id={} | method=deleteUser | status=error | error_code=KEYCLOAK_ERROR | error_message={} | duration_ms={}",
+                    correlationId, userId, errorMessage, System.currentTimeMillis() - startTime);
+            throw ApiException.badRequest("User not found: " + userId);
+        }
+
+        long duration = System.currentTimeMillis() - startTime;
+        log.info("User deletion successful | correlation_id={} | user_id={} | method=deleteUser | status=success | duration_ms={}",
+                correlationId, userId, duration);
+    }
+
+    private Throwable handleError(Throwable ex, String correlationId, long startTime, String identifier, String method) {
+        long duration = System.currentTimeMillis() - startTime;
+        String errorCode = ex instanceof ApiException apiException ? apiException.getCode() : "KEYCLOAK_ERROR";
+        String errorMessage = ex.getMessage();
+        log.error("{} failed | correlation_id={} | {} | method={} | status=error | error_code={} | error_message={} | duration_ms={}",
+                method, correlationId, identifier != null ? "identifier=" + identifier : "", method, errorCode, errorMessage, duration);
+        return ex instanceof ApiException ? ex : ApiException.internalError("Failed to process request");
+    }
 }

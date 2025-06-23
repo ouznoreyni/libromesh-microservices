@@ -15,8 +15,8 @@ import sn.noreyni.userservice.users.dto.CreateUserResponse;
 import sn.noreyni.userservice.users.dto.UpdateUserRequest;
 import sn.noreyni.userservice.users.dto.UserResponse;
 
+import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -38,40 +38,8 @@ public class UserController {
         log.info("User creation request started | correlation_id={} | username={} | method=createUser", correlationId, request.getUsername());
 
         return userService.createUser(request)
-                .map(createUserResponse -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.info("User creation successful | correlation_id={} | username={} | user_id={} | method=createUser | status=success | duration_ms={}",
-                            correlationId, request.getUsername(), createUserResponse.getUserId(), duration);
-                    return ResponseEntity.ok(
-                            ApiResponse.<CreateUserResponse>success(
-                                    createUserResponse,
-                                    "Utilisateur créé avec succès",
-                                    correlationId
-                            ).withMetadata("created_at", createUserResponse.getCreatedAt().toString())
-                    );
-                })
-                .onErrorResume(ApiException.class, ex -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.error("User creation failed | correlation_id={} | username={} | method=createUser | status=error | error_code={} | error_message={} | duration_ms={}",
-                            correlationId, request.getUsername(), ex.getCode(), ex.getMessage(), duration);
-                    return Mono.just(ResponseEntity.status(ex.getStatus())
-                            .body(ApiResponse.error(
-                                    ex.getCode(),
-                                    ex.getMessage(),
-                                    correlationId
-                            )));
-                })
-                .onErrorResume(Exception.class, ex -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.error("Unexpected error during user creation | correlation_id={} | username={} | method=createUser | status=error | error_code=SYSTEM_001 | error_message={} | duration_ms={}",
-                            correlationId, request.getUsername(), ex.getMessage(), duration);
-                    return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .body(ApiResponse.error(
-                                    "SYSTEM_001",
-                                    "Une erreur interne s'est produite",
-                                    correlationId
-                            )));
-                });
+                .map(response -> buildSuccessResponse(response, "Utilisateur créé avec succès", correlationId, startTime))
+                .onErrorResume(ex -> handleError(ex, correlationId, startTime, request.getUsername(), "createUser"));
     }
 
     /**
@@ -84,39 +52,8 @@ public class UserController {
         log.info("User retrieval request started | correlation_id={} | user_id={} | method=getUser", correlationId, userId);
 
         return userService.getUser(userId)
-                .map(userResponse -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.info("User retrieval successful | correlation_id={} | user_id={} | username={} | method=getUser | status=success | duration_ms={}",
-                            correlationId, userId, userResponse.getUsername(), duration);
-                    return ResponseEntity.ok(
-                            ApiResponse.<UserResponse>success(
-                                    userResponse,
-                                    "Utilisateur récupéré avec succès",
-                                    correlationId
-                            ));
-                })
-                .onErrorResume(ApiException.class, ex -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.error("User retrieval failed | correlation_id={} | user_id={} | method=getUser | status=error | error_code={} | error_message={} | duration_ms={}",
-                            correlationId, userId, ex.getCode(), ex.getMessage(), duration);
-                    return Mono.just(ResponseEntity.status(ex.getStatus())
-                            .body(ApiResponse.error(
-                                    ex.getCode(),
-                                    ex.getMessage(),
-                                    correlationId
-                            )));
-                })
-                .onErrorResume(Exception.class, ex -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.error("Unexpected error during user retrieval | correlation_id={} | user_id={} | method=getUser | status=error | error_code=SYSTEM_001 | error_message={} | duration_ms={}",
-                            correlationId, userId, ex.getMessage(), duration);
-                    return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .body(ApiResponse.error(
-                                    "SYSTEM_001",
-                                    "Une erreur interne s'est produite",
-                                    correlationId
-                            )));
-                });
+                .map(response -> buildSuccessResponse(response, "Utilisateur récupéré avec succès", correlationId, startTime))
+                .onErrorResume(ex -> handleError(ex, correlationId, startTime, userId, "getUser"));
     }
 
     /**
@@ -129,39 +66,8 @@ public class UserController {
         log.info("User list retrieval request started | correlation_id={} | method=listUsers", correlationId);
 
         return userService.listUsers()
-                .map(userResponses -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.info("User list retrieval successful | correlation_id={} | user_count={} | method=listUsers | status=success | duration_ms={}",
-                            correlationId, userResponses.size(), duration);
-                    return ResponseEntity.ok(
-                            ApiResponse.<List<UserResponse>>success(
-                                    userResponses,
-                                    "Liste des utilisateurs récupérée avec succès",
-                                    correlationId
-                            ));
-                })
-                .onErrorResume(ApiException.class, ex -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.error("User list retrieval failed | correlation_id={} | method=listUsers | status=error | error_code={} | error_message={} | duration_ms={}",
-                            correlationId, ex.getCode(), ex.getMessage(), duration);
-                    return Mono.just(ResponseEntity.status(ex.getStatus())
-                            .body(ApiResponse.error(
-                                    ex.getCode(),
-                                    ex.getMessage(),
-                                    correlationId
-                            )));
-                })
-                .onErrorResume(Exception.class, ex -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.error("Unexpected error during user list retrieval | correlation_id={} | method=listUsers | status=error | error_code=SYSTEM_001 | error_message={} | duration_ms={}",
-                            correlationId, ex.getMessage(), duration);
-                    return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .body(ApiResponse.error(
-                                    "SYSTEM_001",
-                                    "Une erreur interne s'est produite",
-                                    correlationId
-                            )));
-                });
+                .map(response -> buildSuccessResponse(response, "Liste des utilisateurs récupérée avec succès", correlationId, startTime))
+                .onErrorResume(ex -> handleError(ex, correlationId, startTime, null, "listUsers"));
     }
 
     /**
@@ -176,40 +82,8 @@ public class UserController {
         log.info("User list retrieval request started | correlation_id={} | page={} | size={} | method=listUsers", correlationId, page, size);
 
         return userService.listUsers(page, size)
-                .map(pagedUserResponse -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.info("User list retrieval successful | correlation_id={} | page={} | size={} | user_count={} | total_elements={} | total_pages={} | method=listUsers | status=success | duration_ms={}",
-                            correlationId, page, size, pagedUserResponse.getContent().size(), pagedUserResponse.getTotalElements(), pagedUserResponse.getTotalPages(), duration);
-                    return ResponseEntity.ok(
-                            ApiResponse.<PagedResponse<List<UserResponse>>>success(
-                                    pagedUserResponse,
-                                    "Liste des utilisateurs récupérée avec succès",
-                                    correlationId
-                            )
-                    );
-                })
-                .onErrorResume(ApiException.class, ex -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.error("User list retrieval failed | correlation_id={} | page={} | size={} | method=listUsers | status=error | error_code={} | error_message={} | duration_ms={}",
-                            correlationId, page, size, ex.getCode(), ex.getMessage(), duration);
-                    return Mono.just(ResponseEntity.status(ex.getStatus())
-                            .body(ApiResponse.error(
-                                    ex.getCode(),
-                                    ex.getMessage(),
-                                    correlationId
-                            )));
-                })
-                .onErrorResume(Exception.class, ex -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.error("Unexpected error during user list retrieval | correlation_id={} | page={} | size={} | method=listUsers | status=error | error_code=SYSTEM_001 | error_message={} | duration_ms={}",
-                            correlationId, page, size, ex.getMessage(), duration);
-                    return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .body(ApiResponse.error(
-                                    "SYSTEM_001",
-                                    "Une erreur interne s'est produite",
-                                    correlationId
-                            )));
-                });
+                .map(response -> buildSuccessResponse(response, "Liste des utilisateurs récupérée avec succès", correlationId, startTime))
+                .onErrorResume(ex -> handleError(ex, correlationId, startTime, null, "listUsers"));
     }
 
     /**
@@ -223,39 +97,8 @@ public class UserController {
         log.info("User update request started | correlation_id={} | user_id={} | method=updateUser", correlationId, userId);
 
         return userService.updateUser(userId, request)
-                .map(userResponse -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.info("User update successful | correlation_id={} | user_id={} | username={} | method=updateUser | status=success | duration_ms={}",
-                            correlationId, userId, userResponse.getUsername(), duration);
-                    return ResponseEntity.ok(
-                            ApiResponse.<UserResponse>success(
-                                    userResponse,
-                                    "Utilisateur mis à jour avec succès",
-                                    correlationId
-                            ));
-                })
-                .onErrorResume(ApiException.class, ex -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.error("User update failed | correlation_id={} | user_id={} | method=updateUser | status=error | error_code={} | error_message={} | duration_ms={}",
-                            correlationId, userId, ex.getCode(), ex.getMessage(), duration);
-                    return Mono.just(ResponseEntity.status(ex.getStatus())
-                            .body(ApiResponse.error(
-                                    ex.getCode(),
-                                    ex.getMessage(),
-                                    correlationId
-                            )));
-                })
-                .onErrorResume(Exception.class, ex -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.error("Unexpected error during user update | correlation_id={} | user_id={} | method=updateUser | status=error | error_code=SYSTEM_001 | error_message={} | duration_ms={}",
-                            correlationId, userId, ex.getMessage(), duration);
-                    return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .body(ApiResponse.error(
-                                    "SYSTEM_001",
-                                    "Une erreur interne s'est produite",
-                                    correlationId
-                            )));
-                });
+                .map(response -> buildSuccessResponse(response, "Utilisateur mis à jour avec succès", correlationId, startTime))
+                .onErrorResume(ex -> handleError(ex, correlationId, startTime, userId, "updateUser"));
     }
 
     /**
@@ -268,38 +111,30 @@ public class UserController {
         log.info("User deletion request started | correlation_id={} | user_id={} | method=deleteUser", correlationId, userId);
 
         return userService.deleteUser(userId)
-                .then(Mono.fromCallable(() -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.info("User deletion successful | correlation_id={} | user_id={} | method=deleteUser | status=success | duration_ms={}",
-                            correlationId, userId, duration);
-                    return ResponseEntity.ok(
-                            ApiResponse.<Void>success(
-                                    null,
-                                    "Utilisateur supprimé avec succès",
-                                    correlationId
-                            ));
-                }))
-                .onErrorResume(ApiException.class, ex -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.error("User deletion failed | correlation_id={} | user_id={} | method=deleteUser | status=error | error_code={} | error_message={} | duration_ms={}",
-                            correlationId, userId, ex.getCode(), ex.getMessage(), duration);
-                    return Mono.just(ResponseEntity.status(ex.getStatus())
-                            .body(ApiResponse.error(
-                                    ex.getCode(),
-                                    ex.getMessage(),
-                                    correlationId
-                            )));
-                })
-                .onErrorResume(Exception.class, ex -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.error("Unexpected error during user deletion | correlation_id={} | user_id={} | method=deleteUser | status=error | error_code=SYSTEM_001 | error_message={} | duration_ms={}",
-                            correlationId, userId, ex.getMessage(), duration);
-                    return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .body(ApiResponse.error(
-                                    "SYSTEM_001",
-                                    "Une erreur interne s'est produite",
-                                    correlationId
-                            )));
-                });
+                .then(Mono.just(buildSuccessResponse((Void) null, "Utilisateur supprimé avec succès", correlationId, startTime)))
+                .onErrorResume(ex -> handleError(ex, correlationId, startTime, userId, "deleteUser"));
+    }
+
+    private <T> ResponseEntity<ApiResponse<T>> buildSuccessResponse(T response, String message, String correlationId, long startTime) {
+        long duration = System.currentTimeMillis() - startTime;
+        log.info("Request successful | correlation_id={} | method={} | status=success | duration_ms={}",
+                correlationId, message, duration);
+        return ResponseEntity.ok(
+                ApiResponse.<T>success(response, message, correlationId)
+                        .withMetadata("created_at", LocalDateTime.now().toString()));
+    }
+
+    private <T> Mono<ResponseEntity<ApiResponse<T>>> handleError(Throwable ex, String correlationId, long startTime, String identifier, String method) {
+        long duration = System.currentTimeMillis() - startTime;
+        if (ex instanceof ApiException apiEx) {
+            log.error("{} failed | correlation_id={} | {} | method={} | status=error | error_code={} | error_message={} | duration_ms={}",
+                    method, correlationId, identifier != null ? "identifier=" + identifier : "", method, apiEx.getCode(), ex.getMessage(), duration);
+            return Mono.just(ResponseEntity.status(apiEx.getStatus())
+                    .body(ApiResponse.error(apiEx.getCode(), ex.getMessage(), correlationId)));
+        }
+        log.error("Unexpected error during {} | correlation_id={} | {} | method={} | status=error | error_code=SYSTEM_001 | error_message={} | duration_ms={}",
+                method, correlationId, identifier != null ? "identifier=" + identifier : "", method, ex.getMessage(), duration);
+        return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.error("SYSTEM_001", "Une erreur interne s'est produite", correlationId)));
     }
 }
