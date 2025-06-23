@@ -147,7 +147,7 @@ public class UserService {
     }
 
     private List<String> getUserRoles(RealmResource realmResource, String userId) {
-        return realmResource.users().get(userId).roles().realmLevel().listEffective()
+        return realmResource.users().get(userId).roles().realmLevel().listAll()
                 .stream()
                 .map(RoleRepresentation::getName)
                 .toList();
@@ -162,9 +162,9 @@ public class UserService {
                 .lastName(user.getLastName())
                 .enabled(user.isEnabled())
                 .emailVerified(user.isEmailVerified())
-                .createdAt(LocalDateTime.ofInstant(
+                .createdAt(user.getCreatedTimestamp() != null ? LocalDateTime.ofInstant(
                         Instant.ofEpochMilli(user.getCreatedTimestamp()),
-                        ZoneId.systemDefault()))
+                        ZoneId.systemDefault()) : null)
                 .roles(roles)
                 .build();
     }

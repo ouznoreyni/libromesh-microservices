@@ -30,255 +30,198 @@ public class AuthenticationService {
     private final WebClient.Builder webClientBuilder;
     private final KeycloakAdminClientConfig keycloakConfig;
 
-    /**
-     * Authenticate user and return login information
-     */
     public Mono<LoginResponse> login(LoginRequest request) {
-        String correlationId = UUID.randomUUID().toString();
-        long startTime = System.currentTimeMillis();
-        log.info("Login attempt started | correlation_id={} | username={} | method=login",
-                correlationId, request.getUsername());
-
-        return authenticateWithKeycloak(request)
-                .map(tokenResponse -> LoginResponse.builder()
-                        .accessToken(tokenResponse.getAccessToken())
-                        .refreshToken(tokenResponse.getRefreshToken())
-                        .tokenType(tokenResponse.getTokenType())
-                        .expiresIn(tokenResponse.getExpiresIn())
-                        .refreshExpiresIn(tokenResponse.getRefreshExpiresIn())
-                        .loginTime(LocalDateTime.now())
-                        .build())
-                .doOnSuccess(response -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.info("Login successful | correlation_id={} | username={} | method=login | status=success | duration_ms={}",
-                            correlationId, request.getUsername(), duration);
-                })
-                .doOnError(error -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    String errorCode = error instanceof ApiException ? ((ApiException) error).getCode() :
-                            "UNKNOWN";
-                    log.error("Login failed | correlation_id={} | username={} | method=login | status=error | error_code={} | error_message={} | duration_ms={}",
-                            correlationId, request.getUsername(), errorCode, error.getMessage(), duration);
-                })
-                .onErrorMap(this::mapWebClientException);
+        return executeWithLogging("login", request.getUsername(),
+                authenticateWithKeycloak(request)
+                        .map(this::toLoginResponse));
     }
 
-    /**
-     * Refresh access token
-     */
     public Mono<RefreshTokenResponse> refreshToken(RefreshTokenRequest request) {
-        String correlationId = UUID.randomUUID().toString();
-        long startTime = System.currentTimeMillis();
-        log.info("Token refresh attempt started | correlation_id={} | method=refreshToken", correlationId);
-
-        MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
-        formData.add("grant_type", "refresh_token");
-        formData.add("client_id", keycloakConfig.getClientId());
-        formData.add("client_secret", keycloakConfig.getClientSecret());
-        formData.add("refresh_token", request.getRefreshToken());
-
-        return webClientBuilder.build()
-                .post()
-                .uri(keycloakConfig.getServerUrl() + "/realms/" + keycloakConfig.getRealm() + "/protocol/openid-connect/token")
-                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                .body(BodyInserters.fromFormData(formData))
-                .retrieve()
-                .bodyToMono(KeycloakTokenResponse.class)
-                .map(response -> RefreshTokenResponse.builder()
-                        .accessToken(response.getAccessToken())
-                        .refreshToken(response.getRefreshToken())
-                        .tokenType(response.getTokenType())
-                        .expiresIn(response.getExpiresIn())
-                        .refreshExpiresIn(response.getRefreshExpiresIn())
-                        .refreshedAt(LocalDateTime.now())
-                        .build())
-                .doOnSuccess(response -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.info("Token refresh successful | correlation_id={} | method=refreshToken | status=success | duration_ms={}",
-                            correlationId, duration);
-                })
-                .doOnError(error -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    String errorCode = error instanceof ApiException ?
-                            ((ApiException) error).getCode() : "UNKNOWN";
-                    log.error("Token refresh failed | correlation_id={} | method=refreshToken | status=error | error_code={} | error_message={} | duration_ms={}",
-                            correlationId, errorCode, error.getMessage(), duration);
-                })
-                .onErrorMap(this::mapWebClientException);
+        return executeWithLogging("refreshToken", null,
+                buildWebClient()
+                        .post()
+                        .uri(tokenEndpoint())
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .body(BodyInserters.fromFormData(buildRefreshTokenFormData(request)))
+                        .retrieve()
+                        .bodyToMono(KeycloakTokenResponse.class)
+                        .map(this::toRefreshTokenResponse));
     }
 
-    /**
-     * Logout user
-     */
     public Mono<Void> logout(LogoutRequest request) {
-        String correlationId = UUID.randomUUID().toString();
-        long startTime = System.currentTimeMillis();
-        log.info("Logout attempt started | correlation_id={} | method=logout", correlationId);
-
-        MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
-        formData.add("client_id", keycloakConfig.getClientId());
-        formData.add("client_secret", keycloakConfig.getClientSecret());
-        formData.add("refresh_token", request.getRefreshToken());
-
-        return webClientBuilder.build()
-                .post()
-                .uri(keycloakConfig.getServerUrl() + "/realms/" + keycloakConfig.getRealm() + "/protocol/openid-connect/logout")
-                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                .body(BodyInserters.fromFormData(formData))
-                .retrieve()
-                .bodyToMono(Void.class)
-                .doOnSuccess(response -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.info("Logout successful | correlation_id={} | method=logout | status=success | duration_ms={}",
-                            correlationId, duration);
-                })
-                .doOnError(error -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    String errorCode = error instanceof ApiException ?
-                            ((ApiException) error).getCode() : "UNKNOWN";
-                    log.error("Logout failed | correlation_id={} | method=logout | status=error | error_code={} | error_message={} | duration_ms={}",
-                            correlationId, errorCode, error.getMessage(), duration);
-                })
-                .onErrorMap(this::mapWebClientException);
+        return executeWithLogging("logout", null,
+                buildWebClient()
+                        .post()
+                        .uri(logoutEndpoint())
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .body(BodyInserters.fromFormData(buildLogoutFormData(request)))
+                        .retrieve()
+                        .bodyToMono(Void.class));
     }
 
-    /**
-     * Get current user information from access token
-     */
     public Mono<UserInfo> getUserInformationFromToken(String accessToken) {
+        return executeWithLogging("getUserInformationFromToken", null,
+                buildWebClient()
+                        .get()
+                        .uri(userInfoEndpoint())
+                        .header("Authorization", "Bearer " + accessToken)
+                        .retrieve()
+                        .bodyToMono(KeycloakUserInfo.class)
+                        .map(this::toUserInfo));
+    }
+
+    public Mono<RegisterResponse> register(RegisterRequest request) {
+        return executeWithLogging("register", request.getUsername(),
+                Mono.fromCallable(() -> {
+                    var realmResource = keycloak.realm(keycloakConfig.getRealm());
+                    var user = createUserRepresentation(request);
+
+                    var response = realmResource.users().create(user);
+                    if (response.getStatus() >= 400) {
+                        throw ApiException.badRequest("Failed to create user in Keycloak, status: " + response.getStatus());
+                    }
+
+                    String userId = extractUserId(response);
+                    setUserPassword(realmResource, userId, request.getPassword());
+
+                    return RegisterResponse.builder()
+                            .userId(userId)
+                            .createdAt(LocalDateTime.now())
+                            .build();
+                }));
+    }
+
+    private Mono<KeycloakTokenResponse> authenticateWithKeycloak(LoginRequest request) {
+        return buildWebClient()
+                .post()
+                .uri(tokenEndpoint())
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .body(BodyInserters.fromFormData(buildLoginFormData(request)))
+                .retrieve()
+                .bodyToMono(KeycloakTokenResponse.class);
+    }
+
+    private <T> Mono<T> executeWithLogging(String method, String username, Mono<T> operation) {
         String correlationId = UUID.randomUUID().toString();
         long startTime = System.currentTimeMillis();
-        log.info("User info retrieval started | correlation_id={} | method=getUserInformationFromToken", correlationId);
+        log.info("{} started | correlation_id={} | username={} | method={}",
+                method, correlationId, username, method);
 
-        return webClientBuilder.build()
-                .get()
-                .uri(keycloakConfig.getServerUrl() + "/realms/" + keycloakConfig.getRealm() + "/protocol/openid-connect/userinfo")
-                .header("Authorization", "Bearer " + accessToken)
-                .retrieve()
-                .bodyToMono(KeycloakUserInfo.class)
-                .map(userInfo -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.info("User info retrieved | correlation_id={} | username={} | method=getUserInformationFromToken | status=success | duration_ms={}",
-                            correlationId, userInfo.getPreferredUsername(), duration);
-                    return UserInfo.builder()
-                            .username(userInfo.getPreferredUsername())
-                            .email(userInfo.getEmail())
-                            .firstName(userInfo.getGivenName())
-                            .lastName(userInfo.getFamilyName())
-                            .emailVerified(userInfo.getEmailVerified())
-                            .active(true)
-                            .build();
-                })
-                .doOnError(error -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    String errorCode = error instanceof ApiException ? ((ApiException) error).getCode() : "UNKNOWN";
-                    log.error("User info retrieval failed | correlation_id={} | method=getUserInformationFromToken | status=error | error_code={} | error_message={} | duration_ms={}",
-                            correlationId, errorCode, error.getMessage(), duration);
-                })
+        return operation
+                .doOnSuccess(response -> log.info("{} successful | correlation_id={} | username={} | method={} | status=success | duration_ms={}",
+                        method, correlationId, username, method, System.currentTimeMillis() - startTime))
+                .doOnError(error -> log.error("{} failed | correlation_id={} | username={} | method={} | status=error | error_code={} | error_message={} | duration_ms={}",
+                        method, correlationId, username, method,
+                        error instanceof ApiException  apiException? apiException.getCode() :
+                                "UNKNOWN",
+                        error.getMessage(), System.currentTimeMillis() - startTime))
                 .onErrorMap(this::mapWebClientException);
     }
 
-    /**
-     * Register a new user in Keycloak
-     */
-    public Mono<RegisterResponse> register(RegisterRequest request) {
-        String correlationId = UUID.randomUUID().toString();
-        long startTime = System.currentTimeMillis();
-        log.info("User registration attempt started | correlation_id={} | username={} | method=register",
-                correlationId, request.getUsername());
-
-        return Mono.fromCallable(() -> {
-            RealmResource realmResource = keycloak.realm(keycloakConfig.getRealm());
-            UserRepresentation user = new UserRepresentation();
-            user.setUsername(request.getUsername());
-            user.setEmail(request.getEmail());
-            user.setFirstName(request.getFirstName());
-            user.setLastName(request.getLastName());
-            user.setEnabled(true);
-            user.setEmailVerified(false);
-
-            // Create user in Keycloak
-            jakarta.ws.rs.core.Response response = realmResource.users().create(user);
-            int status = response.getStatus();
-
-            if (status >= 400) {
-                String errorMessage = "Failed to create user in Keycloak, status: " + status;
-                log.error("User registration failed | correlation_id={} | username={} | method=register | status=error | error_code=KEYCLOAK_ERROR | error_message={} | duration_ms={}",
-                        correlationId, request.getUsername(), errorMessage, System.currentTimeMillis() - startTime);
-                throw ApiException.badRequest(errorMessage);
-            }
-
-            // Extract user ID from the response Location header
-            String userId = response.getLocation().getPath().substring(response.getLocation().getPath().lastIndexOf('/') + 1);
-
-            // Set user password
-            CredentialRepresentation passwordCred = new CredentialRepresentation();
-            passwordCred.setType(CredentialRepresentation.PASSWORD);
-            passwordCred.setValue(request.getPassword());
-            passwordCred.setTemporary(false);
-            realmResource.users().get(userId).resetPassword(passwordCred);
-
-            long duration = System.currentTimeMillis() - startTime;
-            log.info("User registration successful | correlation_id={} | username={} | user_id={} | method=register | status=success | duration_ms={}",
-                    correlationId, request.getUsername(), userId, duration);
-
-            return RegisterResponse.builder()
-                    .userId(userId)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-        }).onErrorMap(ex -> {
-            long duration = System.currentTimeMillis() - startTime;
-            String errorCode = ex instanceof ApiException ? ((ApiException) ex).getCode() : "KEYCLOAK_ERROR";
-            log.error("User registration failed | correlation_id={} | username={} | method=register | status=error | error_code={} | error_message={} | duration_ms={}",
-                    correlationId, request.getUsername(), errorCode, ex.getMessage(), duration);
-            return ex instanceof ApiException ? ex : ApiException.internalError("Failed to register user");
-        });
+    private WebClient buildWebClient() {
+        return webClientBuilder.build();
     }
 
-    /**
-     * Authenticate with Keycloak using Resource Owner Password Credentials flow
-     */
-    private Mono<KeycloakTokenResponse> authenticateWithKeycloak(LoginRequest request) {
-        String correlationId = UUID.randomUUID().toString();
-        long startTime = System.currentTimeMillis();
-        log.info("Keycloak authentication started | correlation_id={} | username={} | method=authenticateWithKeycloak",
-                correlationId, request.getUsername());
+    private String tokenEndpoint() {
+        return keycloakConfig.getServerUrl() + "/realms/" + keycloakConfig.getRealm() + "/protocol/openid-connect/token";
+    }
 
-        MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
+    private String logoutEndpoint() {
+        return keycloakConfig.getServerUrl() + "/realms/" + keycloakConfig.getRealm() + "/protocol/openid-connect/logout";
+    }
+
+    private String userInfoEndpoint() {
+        return keycloakConfig.getServerUrl() + "/realms/" + keycloakConfig.getRealm() + "/protocol/openid-connect/userinfo";
+    }
+
+    private MultiValueMap<String, String> buildLoginFormData(LoginRequest request) {
+        var formData = new LinkedMultiValueMap<String, String>();
         formData.add("grant_type", "password");
         formData.add("client_id", keycloakConfig.getClientId());
         formData.add("client_secret", keycloakConfig.getClientSecret());
         formData.add("username", request.getUsername());
         formData.add("password", request.getPassword());
         formData.add("scope", "openid profile email");
-
-        return webClientBuilder.build()
-                .post()
-                .uri(keycloakConfig.getServerUrl() + "/realms/" + keycloakConfig.getRealm() + "/protocol/openid-connect/token")
-                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                .body(BodyInserters.fromFormData(formData))
-                .retrieve()
-                .bodyToMono(KeycloakTokenResponse.class)
-                .doOnSuccess(response -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.info("Keycloak authentication successful | correlation_id={} | username={} | method=authenticateWithKeycloak | status=success | duration_ms={}",
-                            correlationId, request.getUsername(), duration);
-                })
-                .doOnError(error -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.error("Keycloak authentication failed | correlation_id={} | username={} | method=authenticateWithKeycloak | status=error |  | error_message={} | duration_ms={}",
-                            correlationId, request.getUsername(), error.getMessage(),
-                            duration);
-                });
+        return formData;
     }
 
-    /**
-     * Map WebClient exceptions to appropriate business exceptions
-     */
+    private MultiValueMap<String, String> buildRefreshTokenFormData(RefreshTokenRequest request) {
+        var formData = new LinkedMultiValueMap<String, String>();
+        formData.add("grant_type", "refresh_token");
+        formData.add("client_id", keycloakConfig.getClientId());
+        formData.add("client_secret", keycloakConfig.getClientSecret());
+        formData.add("refresh_token", request.getRefreshToken());
+        return formData;
+    }
+
+    private MultiValueMap<String, String> buildLogoutFormData(LogoutRequest request) {
+        var formData = new LinkedMultiValueMap<String, String>();
+        formData.add("client_id", keycloakConfig.getClientId());
+        formData.add("client_secret", keycloakConfig.getClientSecret());
+        formData.add("refresh_token", request.getRefreshToken());
+        return formData;
+    }
+
+    private LoginResponse toLoginResponse(KeycloakTokenResponse tokenResponse) {
+        return LoginResponse.builder()
+                .accessToken(tokenResponse.getAccessToken())
+                .refreshToken(tokenResponse.getRefreshToken())
+                .tokenType(tokenResponse.getTokenType())
+                .expiresIn(tokenResponse.getExpiresIn())
+                .refreshExpiresIn(tokenResponse.getRefreshExpiresIn())
+                .loginTime(LocalDateTime.now())
+                .build();
+    }
+
+    private RefreshTokenResponse toRefreshTokenResponse(KeycloakTokenResponse response) {
+        return RefreshTokenResponse.builder()
+                .accessToken(response.getAccessToken())
+                .refreshToken(response.getRefreshToken())
+                .tokenType(response.getTokenType())
+                .expiresIn(response.getExpiresIn())
+                .refreshExpiresIn(response.getRefreshExpiresIn())
+                .refreshedAt(LocalDateTime.now())
+                .build();
+    }
+
+    private UserInfo toUserInfo(KeycloakUserInfo userInfo) {
+        return UserInfo.builder()
+                .username(userInfo.getPreferredUsername())
+                .email(userInfo.getEmail())
+                .firstName(userInfo.getGivenName())
+                .lastName(userInfo.getFamilyName())
+                .emailVerified(userInfo.getEmailVerified())
+                .active(true)
+                .build();
+    }
+
+    private UserRepresentation createUserRepresentation(RegisterRequest request) {
+        var user = new UserRepresentation();
+        user.setUsername(request.getUsername());
+        user.setEmail(request.getEmail());
+        user.setFirstName(request.getFirstName());
+        user.setLastName(request.getLastName());
+        user.setEnabled(true);
+        user.setEmailVerified(false);
+        return user;
+    }
+
+    private String extractUserId(jakarta.ws.rs.core.Response response) {
+        return response.getLocation().getPath().substring(response.getLocation().getPath().lastIndexOf('/') + 1);
+    }
+
+    private void setUserPassword(RealmResource realmResource, String userId, String password) {
+        var passwordCred = new CredentialRepresentation();
+        passwordCred.setType(CredentialRepresentation.PASSWORD);
+        passwordCred.setValue(password);
+        passwordCred.setTemporary(false);
+        realmResource.users().get(userId).resetPassword(passwordCred);
+    }
+
     private Throwable mapWebClientException(Throwable ex) {
         if (ex instanceof WebClientResponseException webEx) {
-            log.error("WebClient error | status_code={} | response_body={}", webEx.getStatusCode(), webEx.getResponseBodyAsString());
-
+            log.error("WebClient error | status_code={} | response_body={}",
+                    webEx.getStatusCode(), webEx.getResponseBodyAsString());
             return switch (webEx.getStatusCode().value()) {
                 case 401 -> ApiException.authenticationFailed();
                 case 400 -> ApiException.badRequest("Invalid request parameters");
