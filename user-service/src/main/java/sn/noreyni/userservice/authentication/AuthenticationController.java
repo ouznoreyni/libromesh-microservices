@@ -23,6 +23,52 @@ public class AuthenticationController {
     private final AuthenticationService authenticationService;
 
     /**
+     * Register a new user
+     */
+    @PostMapping("/register")
+    public Mono<ResponseEntity<ApiResponse<RegisterResponse>>> register(@Valid @RequestBody RegisterRequest request) {
+        String correlationId = UUID.randomUUID().toString();
+        long startTime = System.currentTimeMillis();
+        log.info("User registration request started | correlation_id={} | username={} | method=register", correlationId, request.getUsername());
+
+        return authenticationService.register(request)
+                .map(registerResponse -> {
+                    long duration = System.currentTimeMillis() - startTime;
+                    log.info("User registration successful | correlation_id={} | username={} | user_id={} | method=register | status=success | duration_ms={}",
+                            correlationId, request.getUsername(), registerResponse.getUserId(), duration);
+                    return ResponseEntity.ok(
+                            ApiResponse.<RegisterResponse>success(
+                                    registerResponse,
+                                    "Utilisateur créé avec succès",
+                                    correlationId
+                            ).withMetadata("created_at", registerResponse.getCreatedAt().toString())
+                    );
+                })
+                .onErrorResume(ApiException.class, ex -> {
+                    long duration = System.currentTimeMillis() - startTime;
+                    log.error("User registration failed | correlation_id={} | username={} | method=register | status=error | error_code={} | error_message={} | duration_ms={}",
+                            correlationId, request.getUsername(), ex.getCode(), ex.getMessage(), duration);
+                    return Mono.just(ResponseEntity.status(ex.getStatus())
+                            .body(ApiResponse.error(
+                                    ex.getCode(),
+                                    ex.getMessage(),
+                                    correlationId
+                            )));
+                })
+                .onErrorResume(Exception.class, ex -> {
+                    long duration = System.currentTimeMillis() - startTime;
+                    log.error("Unexpected error during user registration | correlation_id={} | username={} | method=register | status=error | error_code=SYSTEM_001 | error_message={} | duration_ms={}",
+                            correlationId, request.getUsername(), ex.getMessage(), duration);
+                    return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .body(ApiResponse.error(
+                                    "SYSTEM_001",
+                                    "Une erreur interne s'est produite",
+                                    correlationId
+                            )));
+                });
+    }
+
+    /**
      * User login endpoint
      */
     @PostMapping("/login")

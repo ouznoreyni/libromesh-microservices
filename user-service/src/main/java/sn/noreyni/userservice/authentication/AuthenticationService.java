@@ -3,6 +3,9 @@ package sn.noreyni.userservice.authentication;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.keycloak.admin.client.Keycloak;
+import org.keycloak.admin.client.resource.RealmResource;
+import org.keycloak.representations.idm.CredentialRepresentation;
+import org.keycloak.representations.idm.UserRepresentation;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
@@ -175,6 +178,62 @@ public class AuthenticationService {
                 .onErrorMap(this::mapWebClientException);
     }
 
+    /**
+     * Register a new user in Keycloak
+     */
+    public Mono<RegisterResponse> register(RegisterRequest request) {
+        String correlationId = UUID.randomUUID().toString();
+        long startTime = System.currentTimeMillis();
+        log.info("User registration attempt started | correlation_id={} | username={} | method=register",
+                correlationId, request.getUsername());
+
+        return Mono.fromCallable(() -> {
+            RealmResource realmResource = keycloak.realm(keycloakConfig.getRealm());
+            UserRepresentation user = new UserRepresentation();
+            user.setUsername(request.getUsername());
+            user.setEmail(request.getEmail());
+            user.setFirstName(request.getFirstName());
+            user.setLastName(request.getLastName());
+            user.setEnabled(true);
+            user.setEmailVerified(false);
+
+            // Create user in Keycloak
+            jakarta.ws.rs.core.Response response = realmResource.users().create(user);
+            int status = response.getStatus();
+
+            if (status >= 400) {
+                String errorMessage = "Failed to create user in Keycloak, status: " + status;
+                log.error("User registration failed | correlation_id={} | username={} | method=register | status=error | error_code=KEYCLOAK_ERROR | error_message={} | duration_ms={}",
+                        correlationId, request.getUsername(), errorMessage, System.currentTimeMillis() - startTime);
+                throw ApiException.badRequest(errorMessage);
+            }
+
+            // Extract user ID from the response Location header
+            String userId = response.getLocation().getPath().substring(response.getLocation().getPath().lastIndexOf('/') + 1);
+
+            // Set user password
+            CredentialRepresentation passwordCred = new CredentialRepresentation();
+            passwordCred.setType(CredentialRepresentation.PASSWORD);
+            passwordCred.setValue(request.getPassword());
+            passwordCred.setTemporary(false);
+            realmResource.users().get(userId).resetPassword(passwordCred);
+
+            long duration = System.currentTimeMillis() - startTime;
+            log.info("User registration successful | correlation_id={} | username={} | user_id={} | method=register | status=success | duration_ms={}",
+                    correlationId, request.getUsername(), userId, duration);
+
+            return RegisterResponse.builder()
+                    .userId(userId)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+        }).onErrorMap(ex -> {
+            long duration = System.currentTimeMillis() - startTime;
+            String errorCode = ex instanceof ApiException ? ((ApiException) ex).getCode() : "KEYCLOAK_ERROR";
+            log.error("User registration failed | correlation_id={} | username={} | method=register | status=error | error_code={} | error_message={} | duration_ms={}",
+                    correlationId, request.getUsername(), errorCode, ex.getMessage(), duration);
+            return ex instanceof ApiException ? ex : ApiException.internalError("Failed to register user");
+        });
+    }
 
     /**
      * Authenticate with Keycloak using Resource Owner Password Credentials flow
