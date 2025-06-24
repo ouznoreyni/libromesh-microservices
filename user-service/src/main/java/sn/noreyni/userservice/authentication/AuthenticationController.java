@@ -11,7 +11,6 @@ import sn.noreyni.userservice.authentication.dto.*;
 import sn.noreyni.userservice.common.ApiResponse;
 import sn.noreyni.userservice.exception.ApiException;
 
-import java.time.LocalDateTime;
 import java.util.UUID;
 
 @RestController
@@ -27,32 +26,28 @@ public class AuthenticationController {
     public Mono<ResponseEntity<ApiResponse<RegisterResponse>>> register(@Valid @RequestBody RegisterRequest request) {
         return handleRequest("register", request.getUsername(),
                 authenticationService.register(request)
-                        .map(response -> ApiResponse.<RegisterResponse>success(response, "Utilisateur créé avec succès")
-                                .withMetadata("created_at", response.getCreatedAt().toString())));
+                        .map(response -> ApiResponse.success(response, "Utilisateur créé avec succès")));
     }
 
     @PostMapping("/login")
     public Mono<ResponseEntity<ApiResponse<LoginResponse>>> login(@Valid @RequestBody LoginRequest request) {
         return handleRequest("login", request.getUsername(),
                 authenticationService.login(request)
-                        .map(response -> ApiResponse.<LoginResponse>success(response, "Connexion réussie")
-                                .withMetadata("login_time", response.getLoginTime().toString())));
+                        .map(response -> ApiResponse.success(response, "Connexion réussie")));
     }
 
     @PostMapping("/refresh")
     public Mono<ResponseEntity<ApiResponse<RefreshTokenResponse>>> refreshToken(@Valid @RequestBody RefreshTokenRequest request) {
         return handleRequest("refreshToken", null,
                 authenticationService.refreshToken(request)
-                        .map(response -> ApiResponse.<RefreshTokenResponse>success(response, "Jeton rafraîchi avec succès")
-                                .withMetadata("refreshed_at", response.getRefreshedAt().toString())));
+                        .map(response -> ApiResponse.success(response, "Jeton rafraîchi avec succès")));
     }
 
     @PostMapping("/logout")
     public Mono<ResponseEntity<ApiResponse<Void>>> logout(@Valid @RequestBody LogoutRequest request) {
         return handleRequest("logout", null,
                 authenticationService.logout(request)
-                        .thenReturn(ApiResponse.<Void>success(null, "Déconnexion réussie")
-                                .withMetadata("logout_time", LocalDateTime.now().toString())));
+                        .thenReturn(ApiResponse.success(null, "Déconnexion réussie")));
     }
 
     @GetMapping("/me")
@@ -74,7 +69,6 @@ public class AuthenticationController {
 
         return operation
                 .map(response -> {
-                    //response.setCorrelationId(correlationId);
                     log.info("{} successful | correlation_id={} | username={} | method={} | duration_ms={}",
                             method, correlationId, username, method, System.currentTimeMillis() - startTime);
                     return ResponseEntity.ok(response);

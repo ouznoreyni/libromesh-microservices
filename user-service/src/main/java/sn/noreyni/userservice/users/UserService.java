@@ -10,6 +10,7 @@ import org.keycloak.representations.idm.UserRepresentation;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+import sn.noreyni.userservice.common.ApiResponse;
 import sn.noreyni.userservice.common.PagedResponse;
 import sn.noreyni.userservice.config.KeycloakAdminClientConfig;
 import sn.noreyni.userservice.exception.ApiException;
@@ -200,7 +201,7 @@ public class UserService {
     /**
      * List users with pagination
      */
-    public Mono<PagedResponse<List<UserResponse>>> listUsers(int page, int size) {
+    public Mono<ApiResponse<List<UserResponse>>> listUsers(int page, int size) {
         String correlationId = UUID.randomUUID().toString();
         long startTime = System.currentTimeMillis();
         log.info("User list retrieval attempt started | correlation_id={} | page={} | size={} | method=listUsers",
@@ -211,7 +212,7 @@ public class UserService {
                 .onErrorMap(ex -> handleError(ex, correlationId, startTime, null, "listUsers"));
     }
 
-    private PagedResponse<List<UserResponse>> fetchPagedUsers(int page, int size, String correlationId, long startTime) {
+    private ApiResponse<List<UserResponse>> fetchPagedUsers(int page, int size, String correlationId, long startTime) {
         validatePaginationParameters(page, size);
 
         RealmResource realmResource = keycloak.realm(keycloakConfig.getRealm());
@@ -229,12 +230,17 @@ public class UserService {
         log.info("User list retrieval successful | correlation_id={} | page={} | size={} | user_count={} | total_elements={} | total_pages={} | method=listUsers | status=success | duration_ms={}",
                 correlationId, page, size, userResponses.size(), totalElements, totalPages, duration);
 
-        return PagedResponse.<List<UserResponse>>builder()
+        return ApiResponse.<List<UserResponse>>builder()
+                .success(true)
+                .message("User list retrieval successful")
                 .data(userResponses)
-                .totalElements(totalElements)
-                .totalPages(totalPages)
-                .currentPage(page)
-                .pageSize(size)
+                .pagination(ApiResponse.Pagination
+                        .builder()
+                        .totalElements(totalElements)
+                        .totalPages(totalPages)
+                        .currentPage(page)
+                        .pageSize(size)
+                        .build())
                 .build();
     }
 

@@ -8,7 +8,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 import sn.noreyni.userservice.common.ApiResponse;
-import sn.noreyni.userservice.common.PagedResponse;
 
 import java.util.List;
 import java.util.UUID;
@@ -49,7 +48,7 @@ public class RoleController {
     }
 
     @GetMapping
-    public Mono<PagedResponse<List<RoleDTO>>> listRolesPaged(
+    public Mono<ApiResponse<List<RoleDTO>>> listRolesPaged(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
         String correlationId = UUID.randomUUID().toString();
@@ -61,7 +60,8 @@ public class RoleController {
                 .doOnSuccess(response -> {
                     long duration = System.currentTimeMillis() - startTime;
                     log.info("Paged role list retrieval successful | correlation_id={} | page={} | size={} | role_count={} | total_elements={} | total_pages={} | method=listRolesPaged | status=success | duration_ms={}",
-                            correlationId, page, size, response.getData().size(), response.getTotalElements(), response.getTotalPages(), duration);
+                            correlationId, page, size, response.getData().size(),
+                            response.getPagination().getTotalElements(), response.getPagination().getTotalPages(), duration);
                 })
                 .doOnError(ex -> {
                     long duration = System.currentTimeMillis() - startTime;
