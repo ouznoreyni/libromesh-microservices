@@ -10,4 +10,14 @@ spring:
         git:
           uri: https://github.com/ouznoreyni/libromesh-config-repo
           clone-on-start: true
-
+        vault:
+          host: ${VAULT_HOST:localhost}
+          port: ${VAULT_PORT:8200}
+          scheme: ${VAULT_SCHEME:http}
+          authentication: TOKEN
+          token: ${VAULT_TOKEN:<your-vault-token>}  # Replace or set VAULT_TOKEN env variable
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"

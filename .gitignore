@@ -34,3 +34,5 @@ build/
 
 .idea
 .qodo
+.env
+hs_**

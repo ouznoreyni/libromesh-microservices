@@ -213,7 +213,6 @@ public class UserService {
 
     private ApiResponse<List<UserResponse>> fetchPagedUsers(int page, int size, String correlationId, long startTime) {
         validatePaginationParameters(page, size);
-
         RealmResource realmResource = keycloak.realm(keycloakConfig.getRealm());
         int first = page * size;
         List<UserRepresentation> users = realmResource.users().list(first, size);

@@ -1,12 +1,20 @@
-server:
-  port: 9001
-
 spring:
   application:
     name: user-service
-  cloud:
-    config:
-      enabled: true
   config:
-    import: optional:configserver:http://localhost:8000
-
+    import:
+      - configserver:http://localhost:8000
+      - vault://
+  cloud:
+    vault:
+      enabled: true
+      uri: ${VAULT_URI:http://localhost:8200}
+      authentication: TOKEN
+      token: ${VAULT_TOKEN}
+      kv:
+        enabled: true
+        backend: secret
+        application-name: user-service
+        default-context: user-service
+server:
+  port: 8082

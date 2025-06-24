@@ -9,7 +9,6 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 
-import java.util.Arrays;
 import java.util.List;
 
 public class TestcontainersConfiguration {
