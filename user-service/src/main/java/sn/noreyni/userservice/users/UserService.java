@@ -230,7 +230,7 @@ public class UserService {
                 correlationId, page, size, userResponses.size(), totalElements, totalPages, duration);
 
         return PagedResponse.<List<UserResponse>>builder()
-                .content(userResponses)
+                .data(userResponses)
                 .totalElements(totalElements)
                 .totalPages(totalPages)
                 .currentPage(page)

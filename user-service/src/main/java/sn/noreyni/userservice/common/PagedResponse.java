@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class PagedResponse <T>{
-    private T content;
+    private T data;
     private long totalElements;
     private int totalPages;
     private int currentPage;
