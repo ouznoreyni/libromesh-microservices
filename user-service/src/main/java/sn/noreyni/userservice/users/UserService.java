@@ -11,7 +11,6 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import sn.noreyni.userservice.common.ApiResponse;
-import sn.noreyni.userservice.common.PagedResponse;
 import sn.noreyni.userservice.config.KeycloakAdminClientConfig;
 import sn.noreyni.userservice.exception.ApiException;
 import sn.noreyni.userservice.users.dto.CreateUserRequest;
