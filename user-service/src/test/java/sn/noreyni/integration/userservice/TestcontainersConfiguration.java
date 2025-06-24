@@ -1,4 +1,4 @@
-package sn.noreyni.userservice;
+package sn.noreyni.integration.userservice;
 
 import org.springframework.boot.test.context.TestConfiguration;
 

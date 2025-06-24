@@ -1,6 +1,7 @@
-package sn.noreyni.userservice;
+package sn.noreyni.integration.userservice;
 
 import org.springframework.boot.SpringApplication;
+import sn.noreyni.userservice.UserServiceApplication;
 
 public class TestUserServiceApplication {
 
