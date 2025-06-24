@@ -18,7 +18,26 @@ services:
     volumes:
       - vault_data:/vault/data
       - vault_logs:/vault/logs
+      - ./setups/vault/init-secrets.sh:/vault/init-secrets.sh:ro
     command: vault server -dev -dev-root-token-id=root-token -dev-listen-address=0.0.0.0:8200
+#    command: |
+#      sh -c "
+#        vault server -dev -dev-root-token-id=root-token -dev-listen-address=0.0.0.0:8200 &
+#        VAULT_PID=$$!
+#
+#        # Wait for Vault to be ready
+#        until vault status > /dev/null 2>&1; do
+#          echo 'Waiting for Vault to start...'
+#          sleep 2
+#        done
+#
+#        # Initialize secrets
+#        chmod +x /vault/init-secrets.sh
+#        /vault/init-secrets.sh
+#
+#        # Keep Vault running
+#        wait $$VAULT_PID
+#      "
     healthcheck:
       test: ["CMD", "vault", "status"]
       interval: 30s
@@ -27,6 +46,27 @@ services:
       start_period: 40s
     networks:
       - libromesh-network
+  # Vault Secrets Initializer
+  vault-init:
+    image: hashicorp/vault:1.19
+    container_name: libromesh-vault-init
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: root-token
+    volumes:
+      - ./setups/vault/init-secrets.sh:/tmp/init-secrets.sh:ro
+    command: |
+      sh -c "
+        echo 'Starting Vault secrets initialization...'
+        sh /tmp/init-secrets.sh
+        echo 'Vault secrets initialization completed successfully!'
+      "
+    networks:
+      - libromesh-network
+    restart: "no"
 
   # Apache Kafka with Zookeeper
   zookeeper:
@@ -117,6 +157,7 @@ services:
     command: start-dev --import-realm
     depends_on:
       - keycloak-db
+      - vault-init
     ports:
       - "8180:8080"
     environment:
