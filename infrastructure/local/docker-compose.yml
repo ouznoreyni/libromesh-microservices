@@ -20,24 +20,6 @@ services:
       - vault_logs:/vault/logs
       - ./setups/vault/init-secrets.sh:/vault/init-secrets.sh:ro
     command: vault server -dev -dev-root-token-id=root-token -dev-listen-address=0.0.0.0:8200
-#    command: |
-#      sh -c "
-#        vault server -dev -dev-root-token-id=root-token -dev-listen-address=0.0.0.0:8200 &
-#        VAULT_PID=$$!
-#
-#        # Wait for Vault to be ready
-#        until vault status > /dev/null 2>&1; do
-#          echo 'Waiting for Vault to start...'
-#          sleep 2
-#        done
-#
-#        # Initialize secrets
-#        chmod +x /vault/init-secrets.sh
-#        /vault/init-secrets.sh
-#
-#        # Keep Vault running
-#        wait $$VAULT_PID
-#      "
     healthcheck:
       test: ["CMD", "vault", "status"]
       interval: 30s
@@ -191,6 +173,28 @@ services:
       - ./setups/keycloak/realm.json:/opt/keycloak/data/import/realm.json:ro
     networks:
       - libromesh-network
+  # Book Service Database
+  book-db:
+    image: postgres:15
+    container_name: libromesh-book-db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: bookdb
+      POSTGRES_USER: bookuser
+      POSTGRES_PASSWORD: bookpass2025
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - book_db_data:/var/lib/postgresql/data
+      #- ./setups/postgres/init-book-db.sql:/docker-entrypoint-initdb.d/init-book-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bookuser"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - libromesh-network
 
 # ==========================================
 # Volumes
@@ -208,7 +212,8 @@ volumes:
     driver: local
   vault_logs:
     driver: local
-
+  book_db_data:
+    driver: local
 # ==========================================
 # Networks
 # ==========================================

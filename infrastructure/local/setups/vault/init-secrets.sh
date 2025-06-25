@@ -37,11 +37,10 @@ vault kv put secret/user-service \
 # Create secret for book-service
 echo "Creating book-service secrets..."
 vault kv put secret/book-service \
-    datasource.url="r2dbc:postgresql://localhost:5432/bookdb" \
+    datasource.r2dbc_url="r2dbc:postgresql://localhost:5432/bookdb" \
+    datasource.jdbc_url="jdbc:postgresql://localhost:5432/bookdb" \
     datasource.username="bookuser" \
-    datasource.password="bookpass2025" \
-    datasource.pool.max-size="20" \
-    datasource.pool.initial-size="5"
+    datasource.password="bookpass2025"
 
 # Create secret for config-service
 echo "Creating config-service secrets..."
