@@ -16,5 +16,3 @@ spring:
         backend: secret
         application-name: user-service
         default-context: user-service
-server:
-  port: 8082
