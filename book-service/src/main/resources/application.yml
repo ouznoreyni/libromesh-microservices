@@ -1,19 +1,18 @@
-server:
-  port: 9002
 spring:
   application:
     name: book-service
+  config:
+    import:
+      - configserver:http://localhost:8000
+      - vault://
   cloud:
-    config:
-      enabled: true
     vault:
       enabled: true
-      uri: ${VAULT_URI:http://vault:8200}
+      uri: ${VAULT_URI:http://localhost:8200}
       authentication: TOKEN
       token: ${VAULT_TOKEN}
       kv:
         enabled: true
         backend: secret
-        application-name: ${spring.application.name}
-  config:
-    import: optional:configserver:http://localhost:8000
+        application-name: book-service
+        default-context: book-service

@@ -1,4 +1,4 @@
-package sn.noreyni.userservice.common;
+package sn.noreyni.bookservice.common;
 
 
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -6,7 +6,6 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import sn.noreyni.userservice.roles.RoleDTO;
 
 import java.time.LocalDateTime;
 import java.util.Map;

@@ -36,5 +36,7 @@ springdoc:
       - name: Gateway Service
         url: /libromesh/api-docs
       - name: User Service
-        url: /user-service/libromesh/api-docs  # Via service discovery
+        url: /user-service/libromesh/api-docs
+      - name: Book Service
+        url: /book-service/libromesh/api-docs
 

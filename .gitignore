@@ -36,3 +36,5 @@ build/
 .qodo
 .env
 hs_**
+
+backup
